@@ -1,4 +1,5 @@
 from typing import Literal, Optional
+import os
 import torch
 
 # -----------------------------------------------------------------------------------------------------------------------------------
@@ -52,9 +53,15 @@ def test_asr_data_init(dataset):
         print("Test Passed: Dataset length matches TRANSCRIPT files.")
 
         # Assert order alignment between the FBANK files and TRANSCRIPT files
+        # (Transcripts may be .npy or .txt per handout; compare stem only, not full split('.')
+        # which would falsely fail e.g. 000.npy vs 000.txt.)
         for fbank_file, text_file in zip(dataset.fbank_files, dataset.text_files):
-            assert fbank_file.split('.') == text_file.split('.'), \
-                f"FBANK file {fbank_file} and TRANSCRIPT file {text_file} are misaligned."
+            stem_f = os.path.splitext(fbank_file)[0]
+            stem_t = os.path.splitext(text_file)[0]
+            assert stem_f == stem_t, (
+                f"FBANK file {fbank_file} and TRANSCRIPT file {text_file} are misaligned "
+                f"(expected matching id prefix, got {stem_f!r} vs {stem_t!r})."
+            )
         print("Test Passed: Order alignment between FBANK files and TRANSCRIPT files is correct.")
     
         # Assert alignment between features and transcripts
