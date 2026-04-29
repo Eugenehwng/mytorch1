@@ -15,9 +15,10 @@ class SelfAttentionDecoderLayer(nn.Module):
         x: torch.Tensor,
         key_padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        need_attn_weights: bool = True,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         x, weights = self.self_attn(
-            x, key_padding_mask=key_padding_mask, attn_mask=attn_mask
+            x, key_padding_mask=key_padding_mask, attn_mask=attn_mask, need_weights=need_attn_weights
         )
         x = self.ffn(x)
         return x, weights
@@ -37,12 +38,20 @@ class CrossAttentionDecoderLayer(nn.Module):
         dec_key_padding_mask: Optional[torch.Tensor] = None,
         enc_key_padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        need_attn_weights: bool = True,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x, self_w = self.self_attn(
-            x, key_padding_mask=dec_key_padding_mask, attn_mask=attn_mask
+            x,
+            key_padding_mask=dec_key_padding_mask,
+            attn_mask=attn_mask,
+            need_weights=need_attn_weights,
         )
         x, cross_w = self.cross_attn(
-            x, enc_output, key_padding_mask=enc_key_padding_mask, attn_mask=None
+            x,
+            enc_output,
+            key_padding_mask=enc_key_padding_mask,
+            attn_mask=None,
+            need_weights=need_attn_weights,
         )
         x = self.ffn(x)
         return x, self_w, cross_w

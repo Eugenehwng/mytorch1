@@ -17,7 +17,8 @@ class SelfAttentionLayer(nn.Module):
         x: torch.Tensor,
         key_padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        need_weights: bool = True,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         residual = x
         h = self.norm(x)
         out, weights = self.mha(
@@ -26,7 +27,7 @@ class SelfAttentionLayer(nn.Module):
             h,
             key_padding_mask=key_padding_mask,
             attn_mask=attn_mask,
-            need_weights=True,
+            need_weights=need_weights,
             average_attn_weights=True,
         )
         x = residual + self.dropout(out)
@@ -48,7 +49,8 @@ class CrossAttentionLayer(nn.Module):
         y: torch.Tensor,
         key_padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        need_weights: bool = True,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         residual = x
         h = self.norm(x)
         out, weights = self.mha(
@@ -57,7 +59,7 @@ class CrossAttentionLayer(nn.Module):
             y,
             key_padding_mask=key_padding_mask,
             attn_mask=attn_mask,
-            need_weights=True,
+            need_weights=need_weights,
             average_attn_weights=True,
         )
         x = residual + self.dropout(out)

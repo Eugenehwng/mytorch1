@@ -1,0 +1,22 @@
+# Paste this block under `model:` in config.yaml (or merge into your %%writefile cell).
+# Verified: EncoderDecoderTransformer + 5k vocab ≈ 29,749,776 params (< 30M).
+#
+# Requirements: d_model must be divisible by num_encoder_heads / num_decoder_heads (352 % 4 == 0).
+
+  input_dim: 80
+  time_reduction: 2
+  reduction_method: 'conv'
+
+  d_model: 352
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  num_encoder_heads: 4
+  num_decoder_heads: 4
+  d_ff_encoder: 1408
+  d_ff_decoder: 1408
+  skip_encoder_pe: False
+  skip_decoder_pe: False
+
+  dropout: 0.0
+  layer_drop_rate: 0.0
+  weight_tying: False

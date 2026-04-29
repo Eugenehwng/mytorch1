@@ -217,17 +217,30 @@ class ASRTrainer(BaseTrainer):
             dataloader: DataLoader for validation data
         Returns:
             Tuple[Dict[str, float], List[Dict[str, Any]]]: Validation metrics and recognition results
+        
+        Speed (optional ``config['training']`` keys):
+        - ``val_recognition_num_batches``: int | None — only decode this many val batches per epoch
+          (None = full dev set; e.g. 15–30 for much faster epochs).
+        - ``val_decoding_max_length``: int | None — cap greedy steps (None = min(text_max_len, model.max_len);
+          e.g. 256–512 cuts time when max_len is ~1k+).
         """
+        tcfg = self.config.get("training", {})
+        val_nb = tcfg.get("val_recognition_num_batches", None)
+        val_cap_len = tcfg.get("val_decoding_max_length", None)
+
         recognition_config = {
-            'num_batches': None,
-            'beam_width': 1,
-            'temperature': 1.0,
-            'repeat_penalty': 1.0,
-            'lm_weight': 0.0,
-            'lm_model': None,
+            "num_batches": val_nb,
+            "beam_width": 1,
+            "temperature": 1.0,
+            "repeat_penalty": 1.0,
+            "lm_weight": 0.0,
+            "lm_model": None,
         }
         val_results = self.recognize(
-            dataloader, recognition_config, config_name='validation', max_length=None
+            dataloader,
+            recognition_config,
+            config_name="validation",
+            max_length=val_cap_len,
         )
         references = [r['target'] for r in val_results]
         hypotheses = [r['generated'] for r in val_results]
@@ -400,8 +413,22 @@ class ASRTrainer(BaseTrainer):
 
         # Initialize variables
         self.model.eval()
-        batch_bar = tqdm(total=len(dataloader), dynamic_ncols=True, leave=False, position=0, desc=f"[Recognizing ASR] : {config_name or 'default'}")
+        nb_limit = recognition_config.get("num_batches")
+        total_bar = len(dataloader) if nb_limit is None else min(len(dataloader), nb_limit)
+        batch_bar = tqdm(
+            total=total_bar,
+            dynamic_ncols=True,
+            leave=False,
+            position=0,
+            desc=f"[Recognizing ASR] : {config_name or 'default'}",
+        )
         results = []
+
+        amp_ctx = (
+            torch.autocast(device_type="cuda", dtype=torch.float16)
+            if self.device == "cuda"
+            else nullcontext()
+        )
 
         # Run inference
         with torch.inference_mode():
@@ -412,42 +439,46 @@ class ASRTrainer(BaseTrainer):
                 if targets_golden is not None:
                     targets_golden = targets_golden.to(self.device)
 
-                encoder_output, pad_mask_src, _, _ = self.model.encode(feats, feat_lengths)
-                
-                # Define scoring function for this batch
-                def get_score(x):
-                    asr_logits = self.model.score(x, encoder_output, pad_mask_src)
-                    if recognition_config.get('lm_model') is not None:
-                        lm_logits = recognition_config['lm_model'].score(x)
-                        return asr_logits + recognition_config['lm_weight'] * lm_logits
-                    return asr_logits
-                
-                # Set score function of generator
-                generator.score_fn = get_score
+                with amp_ctx:
+                    encoder_output, pad_mask_src, _, _ = self.model.encode(feats, feat_lengths)
 
-                batch_size = feats.size(0)
-                prompts = torch.full(
-                    (batch_size, 1),
-                    self.tokenizer.sos_id,
-                    dtype=torch.long,
-                    device=self.device,
-                )
+                    # Define scoring function for this batch
+                    def get_score(x):
+                        asr_logits = self.model.score(x, encoder_output, pad_mask_src)
+                        if recognition_config.get("lm_model") is not None:
+                            lm_logits = recognition_config["lm_model"].score(x)
+                            return (
+                                asr_logits
+                                + recognition_config["lm_weight"] * lm_logits
+                            )
+                        return asr_logits
 
-                if recognition_config['beam_width'] > 1:
-                    seqs, scores = generator.generate_beam(
-                        prompts,
-                        beam_width=recognition_config['beam_width'],
-                        temperature=recognition_config['temperature'],
-                        repeat_penalty=recognition_config['repeat_penalty'],
+                    # Set score function of generator
+                    generator.score_fn = get_score
+
+                    batch_size = feats.size(0)
+                    prompts = torch.full(
+                        (batch_size, 1),
+                        self.tokenizer.sos_id,
+                        dtype=torch.long,
+                        device=self.device,
                     )
-                    seqs = seqs[:, 0, :]
-                    scores = scores[:, 0]
-                else:
-                    seqs, scores = generator.generate_greedy(
-                        prompts,
-                        repeat_penalty=recognition_config['repeat_penalty'],
-                        temperature=recognition_config['temperature'],
-                    )
+
+                    if recognition_config["beam_width"] > 1:
+                        seqs, scores = generator.generate_beam(
+                            prompts,
+                            beam_width=recognition_config["beam_width"],
+                            temperature=recognition_config["temperature"],
+                            repeat_penalty=recognition_config["repeat_penalty"],
+                        )
+                        seqs = seqs[:, 0, :]
+                        scores = scores[:, 0]
+                    else:
+                        seqs, scores = generator.generate_greedy(
+                            prompts,
+                            repeat_penalty=recognition_config["repeat_penalty"],
+                            temperature=recognition_config["temperature"],
+                        )
 
                 # Clean up
                 del feats, feat_lengths, encoder_output, pad_mask_src, prompts

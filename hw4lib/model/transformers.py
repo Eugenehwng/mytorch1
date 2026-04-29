@@ -323,7 +323,8 @@ class EncoderDecoderTransformer(nn.Module):
         padded_targets: torch.Tensor, 
         encoder_output: torch.Tensor,
         target_lengths: Optional[torch.Tensor] = None,
-        pad_mask_src: Optional[torch.Tensor] = None
+        pad_mask_src: Optional[torch.Tensor] = None,
+        return_attn_weights: bool = True,
     ) -> Tuple[torch.Tensor, dict]:
         '''
         Decode the target sequence conditioned on the encoder output.
@@ -332,6 +333,7 @@ class EncoderDecoderTransformer(nn.Module):
             encoder_output: Output from encoder. shape: (batch_size, src_len, d_model)
             target_lengths: The lengths of target sequences. shape: (batch_size,)
             pad_mask_src: Source padding mask from encoder. shape: (batch_size, src_len)
+            return_attn_weights: If False, skip attention weight tensors (faster for score()/greedy inference).
         Returns:
             seq_out: The output sequence. shape: (batch_size, tgt_len, num_classes)
             running_att: Dictionary containing decoder attention weights
@@ -362,9 +364,11 @@ class EncoderDecoderTransformer(nn.Module):
                 dec_key_padding_mask=pad_mask_tgt,
                 enc_key_padding_mask=pad_mask_src,
                 attn_mask=causal_mask,
+                need_attn_weights=return_attn_weights,
             )
-            running_att[f"layer{i+1}_dec_self"] = self_attn
-            running_att[f"layer{i+1}_dec_cross"] = cross_attn
+            if return_attn_weights:
+                running_att[f"layer{i+1}_dec_self"] = self_attn
+                running_att[f"layer{i+1}_dec_cross"] = cross_attn
 
         x_dec = self.decoder_norm(x_dec)
         seq_out = self.final_linear(x_dec)
@@ -425,8 +429,13 @@ class EncoderDecoderTransformer(nn.Module):
         if self.training:
             raise ValueError("score method is not supported during training")
 
-        # TODO: Use decode function with no target lengths (no padding mask for targets)
-        seq_out, _ = self.decode(batch_prompts, encoder_output, None, pad_mask_src)
+        seq_out, _ = self.decode(
+            batch_prompts,
+            encoder_output,
+            None,
+            pad_mask_src,
+            return_attn_weights=False,
+        )
         
         # Return only the last token's logits
         return seq_out[:, -1, :]
